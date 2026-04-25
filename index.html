@@ -566,6 +566,18 @@ function AdminView({bookings,blockedDates,session,onAdminCancel,onAdminConfirm,o
 
   const inp={width:'100%',padding:'11px 14px',border:'1px solid var(--border)',borderRadius:8,fontSize:14,color:'var(--text)',background:'var(--card)'};
 
+  /* Unauthorised email */
+  if(session&&!STAFF_EMAILS.includes(session.user.email)) return(
+    <div style={{maxWidth:400,margin:'80px auto',padding:'0 20px',textAlign:'center'}}>
+      <div style={{background:'#FEF2F2',borderRadius:20,padding:44,border:'1px solid #FCA5A5'}}>
+        <div style={{fontSize:28,marginBottom:12}}>⛔</div>
+        <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:600,color:'#7A2020',marginBottom:8}}>Access Denied</h2>
+        <p style={{fontSize:14,color:'#9A3030',marginBottom:24}}>{session.user.email} is not authorised as staff.</p>
+        <button onClick={onSignOut} style={{background:'none',border:'1px solid #F0A0A0',borderRadius:10,padding:'10px 22px',fontSize:14,color:'#9A3030',cursor:'pointer',fontWeight:500}}>Sign out</button>
+      </div>
+    </div>
+  );
+
   /* Not signed in */
   if(!session) return(
     <div style={{maxWidth:400,margin:'80px auto',padding:'0 20px',textAlign:'center'}}>
@@ -805,14 +817,8 @@ function App(){
     loadBookings();
 
     /* Auth state */
-    const checkAndSetSession=(session)=>{
-      if(session&&!STAFF_EMAILS.includes(session.user.email)){
-        sb.auth.signOut(); setSession(null); showToast('Access denied — unauthorised email.','error'); return;
-      }
-      setSession(session); if(session) setView('admin');
-    };
-    sb.auth.getSession().then(({data:{session}})=>checkAndSetSession(session));
-    const{data:{subscription}}=sb.auth.onAuthStateChange((event,session)=>{ if(event==='SIGNED_IN') checkAndSetSession(session); else setSession(session); });
+    sb.auth.getSession().then(({data:{session}})=>{ setSession(session); if(session) setView('admin'); });
+    const{data:{subscription}}=sb.auth.onAuthStateChange((event,session)=>{ setSession(session); if(event==='SIGNED_IN') setView('admin'); });
 
     /* Real-time — any change to bookings table triggers a refresh */
     const channel=sb.channel('bookings-live')
