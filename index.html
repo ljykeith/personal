@@ -419,11 +419,14 @@ function CustomerView({bookings,blockedDates,onBook,onCancel,showToast}){
                   </div>
                   <div>
                     <label style={{fontSize:13,fontWeight:500,color:'var(--text2)',display:'block',marginBottom:7}}>Contact Number</label>
-                    <input value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} placeholder="e.g. +65 9123 4567" style={inp}/>
+                    <input value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} placeholder="e.g. 91234567" style={inp}/>
+                    {form.phone.trim()&&!/^[89]\d{7}$/.test(form.phone.replace(/\s+/g,''))&&(
+                      <p style={{fontSize:12,color:'#9A3030',marginTop:6}}>Enter a valid Singapore mobile number (8 digits, starting with 8 or 9).</p>
+                    )}
                   </div>
                   <button className="primary-btn" onClick={handleBook}
-                    disabled={!form.name.trim()||!form.phone.trim()||submitting}
-                    style={{background:form.name.trim()&&form.phone.trim()&&!submitting?'var(--header)':'#DDD8CE',color:form.name.trim()&&form.phone.trim()&&!submitting?'#fff':'var(--muted)',border:'none',borderRadius:10,padding:'15px',minHeight:50,fontSize:15,fontWeight:600,cursor:form.name.trim()&&form.phone.trim()&&!submitting?'pointer':'not-allowed',marginTop:4,transition:'opacity .2s',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+                    disabled={!form.name.trim()||!/^[89]\d{7}$/.test(form.phone.replace(/\s+/g,''))||submitting}
+                    style={{background:form.name.trim()&&/^[89]\d{7}$/.test(form.phone.replace(/\s+/g,''))&&!submitting?'var(--header)':'#DDD8CE',color:form.name.trim()&&/^[89]\d{7}$/.test(form.phone.replace(/\s+/g,''))&&!submitting?'#fff':'var(--muted)',border:'none',borderRadius:10,padding:'15px',minHeight:50,fontSize:15,fontWeight:600,cursor:form.name.trim()&&/^[89]\d{7}$/.test(form.phone.replace(/\s+/g,''))&&!submitting?'pointer':'not-allowed',marginTop:4,transition:'opacity .2s',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
                     {submitting?<span className="spinner"/>:<>Pay to Confirm <span style={{background:'rgba(255,255,255,.15)',borderRadius:6,padding:'2px 8px',fontSize:14}}>S${PRICE}</span></>}
                   </button>
                   <p style={{fontSize:12,color:'var(--muted)',textAlign:'center'}}>Cancellations accepted up to 48 hours before your appointment.</p>
