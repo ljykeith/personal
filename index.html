@@ -683,8 +683,8 @@ function App(){
     loadBookings();
 
     /* Auth state */
-    sb.auth.getSession().then(({data:{session}})=>setSession(session));
-    const{data:{subscription}}=sb.auth.onAuthStateChange((_,session)=>setSession(session));
+    sb.auth.getSession().then(({data:{session}})=>{ setSession(session); if(session) setView('admin'); });
+    const{data:{subscription}}=sb.auth.onAuthStateChange((event,session)=>{ setSession(session); if(event==='SIGNED_IN') setView('admin'); });
 
     /* Real-time — any change to bookings table triggers a refresh */
     const channel=sb.channel('bookings-live')
