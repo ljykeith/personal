@@ -235,7 +235,7 @@ function PaymentScreen({booking,onBack}){
 /* ─────────────────────────────────────────
    CALENDAR PICKER
    ───────────────────────────────────────── */
-function CalendarPicker({bookings,selectedDate,onSelect}){
+function CalendarPicker({bookings,blockedDates,selectedDate,onSelect}){
   const t=today(),maxDate=new Date(t); maxDate.setMonth(maxDate.getMonth()+2);
   const [yr,setYr]=useState(t.getFullYear());
   const [mo,setMo]=useState(t.getMonth());
@@ -250,6 +250,7 @@ function CalendarPicker({bookings,selectedDate,onSelect}){
   const getStatus=date=>{
     if(!date||!canBookDate(date)) return 'disabled';
     const ds=fmtDate(date);
+    if((blockedDates||[]).some(b=>b.date===ds)) return 'blocked';
     const dayBks=bookings.filter(b=>b.date===ds);
     const confirmedSlots=SLOTS.filter(s=>dayBks.find(b=>b.slotId===s.id&&b.status==='confirmed')).length;
     const heldSlots    =SLOTS.filter(s=>dayBks.find(b=>b.slotId===s.id&&b.status==='pending')).length;
@@ -279,17 +280,21 @@ function CalendarPicker({bookings,selectedDate,onSelect}){
           return(
             <button key={i} className="day-btn" onClick={()=>ok&&onSelect(date)} disabled={!ok}
               style={{position:'relative',width:'100%',aspectRatio:'1',minHeight:40,border:'none',borderRadius:8,
-                background:isSel?'var(--header)':isTod&&!isSel?'#E8E4D4':'transparent',
-                color:isSel?'#fff':!date||st==='disabled'?'#C8C0A8':st==='full'?'var(--muted)':'var(--text)',
+                background:isSel?'var(--header)':isTod&&!isSel?'#E8E4D4':st==='blocked'?'#FEF0F0':'transparent',
+                color:isSel?'#fff':!date||st==='disabled'||st==='blocked'||st==='full'?'#C8C0A8':'var(--text)',
                 fontSize:13,fontWeight:isSel?600:400,cursor:ok?'pointer':'default',transition:'background .12s'}}>
               {date?date.getDate():''}
-              {ok&&!isSel&&<span style={{position:'absolute',bottom:3,left:'50%',transform:'translateX(-50%)',width:4,height:4,borderRadius:'50%',background:st==='partial'?'#B07840':'var(--accent)'}}/>}
+              {!isSel&&(ok
+                ?<span style={{position:'absolute',bottom:3,left:'50%',transform:'translateX(-50%)',width:4,height:4,borderRadius:'50%',background:st==='partial'?'#B07840':'var(--accent)'}}/>
+                :st==='blocked'&&date
+                ?<span style={{position:'absolute',bottom:3,left:'50%',transform:'translateX(-50%)',width:4,height:4,borderRadius:'50%',background:'#D08080'}}/>
+                :null)}
             </button>
           );
         })}
       </div>
       <div style={{display:'flex',gap:14,marginTop:14,fontSize:11,color:'var(--muted)',flexWrap:'wrap'}}>
-        {[['var(--accent)','Available'],['#B07840','Some slots held'],['var(--border)','Unavailable']].map(([c,l])=>(
+        {[['var(--accent)','Available'],['#B07840','Some slots held'],['#D08080','Blocked'],['var(--border)','Unavailable']].map(([c,l])=>(
           <span key={l} style={{display:'flex',alignItems:'center',gap:5}}>
             <span style={{width:7,height:7,borderRadius:'50%',background:c,display:'inline-block',flexShrink:0}}/>{l}
           </span>
@@ -315,7 +320,7 @@ function StatusBadge({status}){
 /* ─────────────────────────────────────────
    CUSTOMER VIEW
    ───────────────────────────────────────── */
-function CustomerView({bookings,onBook,onCancel,showToast}){
+function CustomerView({bookings,blockedDates,onBook,onCancel,showToast}){
   const [tab,setTab]           =useState('book');
   const [selDate,setSelDate]   =useState(null);
   const [selSlot,setSelSlot]   =useState(null);
@@ -375,7 +380,7 @@ function CustomerView({bookings,onBook,onCancel,showToast}){
         <div className="two-col">
           <div style={{background:'var(--card)',borderRadius:16,padding:22,border:'1px solid var(--border)'}}>
             <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:600,marginBottom:18}}>Select a Date</h3>
-            <CalendarPicker bookings={bookings} selectedDate={selDate} onSelect={d=>{setSelDate(d);setSelSlot(null);}}/>
+            <CalendarPicker bookings={bookings} blockedDates={blockedDates} selectedDate={selDate} onSelect={d=>{setSelDate(d);setSelSlot(null);}}/>
           </div>
           <div style={{display:'flex',flexDirection:'column',gap:18}}>
             <div style={{background:'var(--card)',borderRadius:16,padding:22,border:'1px solid var(--border)'}}>
@@ -482,12 +487,16 @@ function CustomerView({bookings,onBook,onCancel,showToast}){
 /* ─────────────────────────────────────────
    ADMIN VIEW
    ───────────────────────────────────────── */
-function AdminView({bookings,session,onAdminCancel,onAdminConfirm,onAdminAdd,onSignIn,onSignOut}){
+function AdminView({bookings,blockedDates,session,onAdminCancel,onAdminConfirm,onAdminAdd,onBlockDate,onUnblockDate,onSignIn,onSignOut}){
   const [showAdd,setShowAdd]  =useState(false);
   const [addForm,setAddForm]  =useState({name:'',phone:'',date:'',slotId:1});
   const [addErr,setAddErr]    =useState('');
   const [adding,setAdding]    =useState(false);
   const [filter,setFilter]    =useState('all');
+  const [showBlock,setShowBlock]=useState(false);
+  const [blockForm,setBlockForm]=useState({date:'',reason:''});
+  const [blockErr,setBlockErr]  =useState('');
+  const [blocking,setBlocking]  =useState(false);
 
   const upcoming=useMemo(()=>{
     const ts=fmtDate(today());
@@ -517,6 +526,16 @@ function AdminView({bookings,session,onAdminCancel,onAdminConfirm,onAdminAdd,onS
     await onAdminAdd(addForm.date,addForm.slotId,addForm.name,addForm.phone);
     setAdding(false);
     setShowAdd(false);setAddForm({name:'',phone:'',date:'',slotId:1});setAddErr('');
+  };
+
+  const handleBlock=async()=>{
+    if(!blockForm.date){setBlockErr('Please select a date.');return;}
+    if(!blockForm.reason.trim()){setBlockErr('Please enter a reason.');return;}
+    if((blockedDates||[]).some(b=>b.date===blockForm.date)){setBlockErr('This date is already blocked.');return;}
+    setBlocking(true);
+    await onBlockDate(blockForm.date,blockForm.reason.trim());
+    setBlocking(false);
+    setShowBlock(false);setBlockForm({date:'',reason:''});setBlockErr('');
   };
 
   const inp={width:'100%',padding:'11px 14px',border:'1px solid var(--border)',borderRadius:8,fontSize:14,color:'var(--text)',background:'var(--card)'};
@@ -556,6 +575,51 @@ function AdminView({bookings,session,onAdminCancel,onAdminConfirm,onAdminAdd,onS
             <div style={{fontSize:12,color:'var(--muted)',marginTop:5}}>{s.l}</div>
           </div>
         ))}
+      </div>
+
+      {/* Blocked Dates */}
+      <div style={{background:'var(--card)',borderRadius:16,padding:22,border:'1px solid var(--border)',marginBottom:26}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:(blockedDates||[]).length>0||showBlock?16:0}}>
+          <div>
+            <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:600}}>Blocked Dates</h3>
+            {(blockedDates||[]).length===0&&!showBlock&&<p style={{fontSize:13,color:'var(--muted)',marginTop:3}}>No dates currently blocked.</p>}
+          </div>
+          <button onClick={()=>{setShowBlock(s=>!s);setBlockErr('');}} style={{background:showBlock?'none':'var(--header)',color:showBlock?'var(--text2)':'#fff',border:showBlock?'1px solid var(--border)':'none',borderRadius:10,padding:'9px 16px',fontSize:14,fontWeight:600,cursor:'pointer'}}>
+            {showBlock?'Cancel':'+ Block Date'}
+          </button>
+        </div>
+        {(blockedDates||[]).length>0&&(
+          <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:showBlock?16:0}}>
+            {[...(blockedDates||[])].sort((a,b)=>a.date.localeCompare(b.date)).map(b=>(
+              <div key={b.date} style={{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#FEF5F5',borderRadius:10,padding:'10px 14px',border:'1px solid #F0C0C0',flexWrap:'wrap',gap:8}}>
+                <div>
+                  <span style={{fontWeight:600,fontSize:14,color:'var(--text)'}}>{prettyDate(b.date)}</span>
+                  {b.reason&&<span style={{fontSize:13,color:'var(--text2)',marginLeft:10}}>{b.reason}</span>}
+                </div>
+                <button onClick={()=>onUnblockDate(b.date)} style={{background:'none',border:'1px solid #F0A0A0',borderRadius:8,padding:'6px 12px',fontSize:13,color:'#9A3030',cursor:'pointer',fontWeight:500,whiteSpace:'nowrap'}}>Unblock</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {showBlock&&(
+          <div style={{paddingTop:(blockedDates||[]).length>0?16:0,borderTop:(blockedDates||[]).length>0?'1px solid var(--border-lt)':'none'}}>
+            <div className="add-grid" style={{marginBottom:12}}>
+              <div>
+                <label style={{fontSize:13,color:'var(--text2)',display:'block',marginBottom:6}}>Date to Block</label>
+                <input type="date" value={blockForm.date} onChange={e=>setBlockForm(f=>({...f,date:e.target.value}))} style={inp}/>
+              </div>
+              <div>
+                <label style={{fontSize:13,color:'var(--text2)',display:'block',marginBottom:6}}>Reason</label>
+                <input value={blockForm.reason} onChange={e=>setBlockForm(f=>({...f,reason:e.target.value}))} placeholder="e.g. Public holiday" style={inp}/>
+              </div>
+            </div>
+            {blockErr&&<p style={{fontSize:13,color:'#9A3030',marginBottom:10}}>{blockErr}</p>}
+            <button className="primary-btn" onClick={handleBlock} disabled={blocking}
+              style={{background:blocking?'#DDD8CE':'var(--header)',color:blocking?'var(--muted)':'#fff',border:'none',borderRadius:8,padding:'10px 22px',fontSize:14,fontWeight:600,cursor:blocking?'not-allowed':'pointer',display:'flex',alignItems:'center',gap:8}}>
+              {blocking?<><span className="spinner" style={{width:16,height:16,borderWidth:2}}/>Saving…</>:'Block Date'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Header */}
@@ -663,17 +727,22 @@ function App(){
   const isConfigured = SUPABASE_URL !== 'https://YOUR_PROJECT_REF.supabase.co';
 
   const [view,setView]       =useState(IS_STAFF?'admin':'customer');
-  const [bookings,setBookings]=useState([]);
-  const [session,setSession] =useState(null);
-  const [loading,setLoading] =useState(true);
+  const [bookings,setBookings]         =useState([]);
+  const [blockedDates,setBlockedDates] =useState([]);
+  const [session,setSession]           =useState(null);
+  const [loading,setLoading]           =useState(true);
   const [toast,setToast]     =useState(null);
 
   const showToast=(msg,type='success')=>{ setToast({msg,type}); setTimeout(()=>setToast(null),3500); };
 
   /* Load all bookings from DB */
   const loadBookings=useCallback(async()=>{
-    const{data,error}=await sb.from('bookings').select('*').order('date').order('slot_id');
+    const[{data,error},{data:blocked}]=await Promise.all([
+      sb.from('bookings').select('*').order('date').order('slot_id'),
+      sb.from('blocked_dates').select('*').order('date'),
+    ]);
     if(!error) setBookings((data||[]).map(fromDB));
+    setBlockedDates(blocked||[]);
     setLoading(false);
   },[]);
 
@@ -689,6 +758,7 @@ function App(){
     /* Real-time — any change to bookings table triggers a refresh */
     const channel=sb.channel('bookings-live')
       .on('postgres_changes',{event:'*',schema:'public',table:'bookings'},()=>loadBookings())
+      .on('postgres_changes',{event:'*',schema:'public',table:'blocked_dates'},()=>loadBookings())
       .subscribe();
 
     return()=>{ subscription.unsubscribe(); sb.removeChannel(channel); };
@@ -733,6 +803,18 @@ function App(){
       .insert({id,date,slot_id:slotId,name,phone,status:'confirmed'});
     if(error) showToast('Could not add booking.','error');
     else showToast('Booking added and confirmed.');
+  };
+
+  const handleBlockDate=async(date,reason)=>{
+    const{error}=await sb.from('blocked_dates').insert({date,reason});
+    if(error) showToast('Could not block date.','error');
+    else showToast('Date blocked.');
+  };
+
+  const handleUnblockDate=async(date)=>{
+    const{error}=await sb.from('blocked_dates').delete().eq('date',date);
+    if(error) showToast('Could not unblock date.','error');
+    else showToast('Date unblocked.');
   };
 
   const handleSignIn=async()=>{
@@ -790,9 +872,9 @@ function App(){
             <div className="spinner"/>
           </div>
         ):view==='customer'?(
-          <CustomerView bookings={bookings} onBook={handleBook} onCancel={handleCancel} showToast={showToast}/>
+          <CustomerView bookings={bookings} blockedDates={blockedDates} onBook={handleBook} onCancel={handleCancel} showToast={showToast}/>
         ):(
-          <AdminView bookings={bookings} session={session} onAdminCancel={handleAdminCancel} onAdminConfirm={handleAdminConfirm} onAdminAdd={handleAdminAdd} onSignIn={handleSignIn} onSignOut={handleSignOut}/>
+          <AdminView bookings={bookings} blockedDates={blockedDates} session={session} onAdminCancel={handleAdminCancel} onAdminConfirm={handleAdminConfirm} onAdminAdd={handleAdminAdd} onBlockDate={handleBlockDate} onUnblockDate={handleUnblockDate} onSignIn={handleSignIn} onSignOut={handleSignOut}/>
         )}
       </main>
 
