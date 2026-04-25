@@ -662,7 +662,7 @@ function AdminView({bookings,session,onAdminCancel,onAdminConfirm,onAdminAdd,onS
 function App(){
   const isConfigured = SUPABASE_URL !== 'https://YOUR_PROJECT_REF.supabase.co';
 
-  const [view,setView]       =useState('customer');
+  const [view,setView]       =useState(IS_STAFF?'admin':'customer');
   const [bookings,setBookings]=useState([]);
   const [session,setSession] =useState(null);
   const [loading,setLoading] =useState(true);
