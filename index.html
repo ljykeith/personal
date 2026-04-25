@@ -766,21 +766,18 @@ function BlockedDatesPanel({blockedDates,onBlockDate,onUnblockDate}){
             {selDate?prettyDate(fmtDate(selDate)):'Select a date'}
           </h3>
           {!selDate&&<p style={{fontSize:14,color:'var(--muted)',fontStyle:'italic'}}>Click a date on the calendar to block or unblock it.</p>}
-          {selDate&&(()=>{
-            const ds=fmtDate(selDate);
-            const blocked=isBlocked(ds);
-            const existingReason=blockedDates.find(b=>b.date===ds)?.reason;
-            return blocked?(
+          {selDate&&isBlocked(fmtDate(selDate))&&(
               <div>
                 <div style={{background:'#FEF2F2',border:'1px solid #FECACA',borderRadius:10,padding:'12px 14px',marginBottom:14}}>
                   <p style={{fontSize:13,color:'#9A3030',fontWeight:500,marginBottom:2}}>This date is blocked</p>
-                  {existingReason&&<p style={{fontSize:13,color:'#C04040'}}>{existingReason}</p>}
+                  {blockedDates.find(b=>b.date===fmtDate(selDate))?.reason&&<p style={{fontSize:13,color:'#C04040'}}>{blockedDates.find(b=>b.date===fmtDate(selDate))?.reason}</p>}
                 </div>
                 <button onClick={handleUnblock} disabled={saving} style={{width:'100%',background:'var(--header)',color:'#fff',border:'none',borderRadius:10,padding:'13px',fontSize:14,fontWeight:600,cursor:'pointer'}}>
                   {saving?'Removing…':'Remove Block'}
                 </button>
               </div>
-            ):(
+          )}
+          {selDate&&!isBlocked(fmtDate(selDate))&&(
               <div>
                 <label style={{fontSize:13,color:'var(--text2)',display:'block',marginBottom:6}}>Reason (optional)</label>
                 <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="e.g. Public holiday, Staff leave" style={{...inp,marginBottom:12}}/>
@@ -788,8 +785,7 @@ function BlockedDatesPanel({blockedDates,onBlockDate,onUnblockDate}){
                   {saving?'Blocking…':'Block This Date'}
                 </button>
               </div>
-            );
-          })()}
+          )}
         </div>
 
         {/* Blocked dates list */}
