@@ -73,6 +73,10 @@ const SUPABASE_ANON_KEY= 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhY
 const PRICE            = 300;
 const WA_NUM           = '6596245229';   // your WhatsApp number, digits only
 const UEN              = '12345678A';    // your PayNow UEN
+const STAFF_EMAILS     = [              // add staff Google emails here
+  'ljykeith@gmail.com',
+  'gggermaine@gmail.com',
+];
 
 /* ─────────────────────────────────────────
    SUPABASE CLIENT
@@ -801,8 +805,14 @@ function App(){
     loadBookings();
 
     /* Auth state */
-    sb.auth.getSession().then(({data:{session}})=>{ setSession(session); if(session) setView('admin'); });
-    const{data:{subscription}}=sb.auth.onAuthStateChange((event,session)=>{ setSession(session); if(event==='SIGNED_IN') setView('admin'); });
+    const checkAndSetSession=(session)=>{
+      if(session&&!STAFF_EMAILS.includes(session.user.email)){
+        sb.auth.signOut(); setSession(null); showToast('Access denied — unauthorised email.','error'); return;
+      }
+      setSession(session); if(session) setView('admin');
+    };
+    sb.auth.getSession().then(({data:{session}})=>checkAndSetSession(session));
+    const{data:{subscription}}=sb.auth.onAuthStateChange((event,session)=>{ if(event==='SIGNED_IN') checkAndSetSession(session); else setSession(session); });
 
     /* Real-time — any change to bookings table triggers a refresh */
     const channel=sb.channel('bookings-live')
