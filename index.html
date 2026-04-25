@@ -321,11 +321,15 @@ function CalendarPicker({bookings,blockedDates,selectedDate,onSelect}){
    STATUS BADGE
    ───────────────────────────────────────── */
 function StatusBadge({status}){
-  const conf=status==='confirmed';
+  const conf=status==='confirmed', canc=status==='cancelled';
   return(
-    <span style={{display:'inline-flex',alignItems:'center',gap:4,background:conf?'#EAF5E4':'#FFF8E8',color:conf?'#2A5A1E':'#7A6010',border:`1px solid ${conf?'#B8D8A8':'#E8D898'}`,borderRadius:100,padding:'3px 10px',fontSize:11,fontWeight:500}}>
-      <span style={{width:5,height:5,borderRadius:'50%',background:conf?'#5A9A48':'#C4A038',display:'inline-block'}}/>
-      {conf?'Confirmed':'Payment pending'}
+    <span style={{display:'inline-flex',alignItems:'center',gap:4,
+      background:conf?'#EAF5E4':canc?'#F5F5F5':'#FFF8E8',
+      color:conf?'#2A5A1E':canc?'#666':'#7A6010',
+      border:`1px solid ${conf?'#B8D8A8':canc?'#D0D0D0':'#E8D898'}`,
+      borderRadius:100,padding:'3px 10px',fontSize:11,fontWeight:500}}>
+      <span style={{width:5,height:5,borderRadius:'50%',background:conf?'#5A9A48':canc?'#999':'#C4A038',display:'inline-block'}}/>
+      {conf?'Confirmed':canc?'Cancelled':'Payment pending'}
     </span>
   );
 }
@@ -348,7 +352,7 @@ function CustomerView({bookings,blockedDates,onBook,onCancel,showToast}){
   const dateSlots=useMemo(()=>{
     if(!selDate) return [];
     const ds=fmtDate(selDate);
-    return SLOTS.map(s=>{ const bk=bookings.find(b=>b.date===ds&&b.slotId===s.id); return{...s,booked:!!bk,status:bk?.status||null}; });
+    return SLOTS.map(s=>{ const bk=bookings.find(b=>b.date===ds&&b.slotId===s.id&&b.status!=='cancelled'); return{...s,booked:!!bk,status:bk?.status||null}; });
   },[selDate,bookings]);
 
   const handleBook=async()=>{
@@ -492,6 +496,11 @@ function CustomerView({bookings,blockedDates,onBook,onCancel,showToast}){
                   </div>
                 )
               )}
+              {found.status==='cancelled'&&(
+                <div style={{background:'#F5F5F5',border:'1px solid #D0D0D0',borderRadius:10,padding:'12px 16px',textAlign:'center'}}>
+                  <p style={{fontSize:13,color:'#666'}}>This appointment has been cancelled. Please contact us to rebook.</p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -503,7 +512,7 @@ function CustomerView({bookings,blockedDates,onBook,onCancel,showToast}){
 /* ─────────────────────────────────────────
    ADMIN VIEW
    ───────────────────────────────────────── */
-function AdminView({bookings,blockedDates,session,onAdminCancel,onAdminConfirm,onAdminAdd,onBlockDate,onUnblockDate,onSignIn,onSignOut}){
+function AdminView({bookings,blockedDates,session,onAdminCancel,onAdminConfirm,onAdminAdd,onAdminDelete,onBlockDate,onUnblockDate,onSignIn,onSignOut}){
   const [showAdd,setShowAdd]  =useState(false);
   const [addForm,setAddForm]  =useState({name:'',phone:'',date:'',slotId:1});
   const [addErr,setAddErr]    =useState('');
@@ -513,8 +522,6 @@ function AdminView({bookings,blockedDates,session,onAdminCancel,onAdminConfirm,o
   const [blockForm,setBlockForm]=useState({date:'',reason:''});
   const [blockErr,setBlockErr]  =useState('');
   const [blocking,setBlocking]  =useState(false);
-  const [cancelTarget,setCancelTarget]=useState(null);
-  const [cancelReason,setCancelReason]=useState('');
 
   const upcoming=useMemo(()=>{
     const ts=fmtDate(today());
@@ -527,11 +534,12 @@ function AdminView({bookings,blockedDates,session,onAdminCancel,onAdminConfirm,o
       upcoming:upcoming.filter(b=>b.status==='confirmed').length,
       pending: upcoming.filter(b=>b.status==='pending').length,
       total:   bookings.filter(b=>b.status==='confirmed').length,
-      todayOpen:3-bookings.filter(b=>b.date===ts).length,
+      todayOpen:3-bookings.filter(b=>b.date===ts&&b.status!=='cancelled').length,
+      cancelled:upcoming.filter(b=>b.status==='cancelled').length,
     };
   },[bookings,upcoming]);
 
-  const filtered=filter==='all'?upcoming:upcoming.filter(b=>b.status===filter);
+  const filtered=filter==='all'?upcoming.filter(b=>b.status!=='cancelled'):upcoming.filter(b=>b.status===filter);
 
   const handleAdd=async()=>{
     if(!addForm.name||!addForm.phone||!addForm.date){setAddErr('Please fill in all fields.');return;}
@@ -544,14 +552,6 @@ function AdminView({bookings,blockedDates,session,onAdminCancel,onAdminConfirm,o
     await onAdminAdd(addForm.date,addForm.slotId,addForm.name,addForm.phone);
     setAdding(false);
     setShowAdd(false);setAddForm({name:'',phone:'',date:'',slotId:1});setAddErr('');
-  };
-
-  const handleCancelConfirm=()=>{
-    const slot=SLOTS.find(s=>s.id===cancelTarget.slotId);
-    const msg=encodeURIComponent(`Hi ${cancelTarget.name}, we regret to inform you that your Bloom Facial appointment has been cancelled.\n\n📅 ${prettyDate(cancelTarget.date)}\n🕐 ${slot?.time}${cancelReason?'\n\nReason: '+cancelReason:''}\n\nWe apologise for the inconvenience. Please contact us to rebook.\n\n— Bloom Facial`);
-    window.open(`https://wa.me/${toWAPhone(cancelTarget.phone)}?text=${msg}`,'_blank');
-    onAdminCancel(cancelTarget.id);
-    setCancelTarget(null); setCancelReason('');
   };
 
   const handleBlock=async()=>{
@@ -673,10 +673,10 @@ function AdminView({bookings,blockedDates,session,onAdminCancel,onAdminConfirm,o
       </div>
 
       {/* Filter tabs */}
-      <div style={{display:'flex',gap:6,marginBottom:16}}>
-        {[['all','All'],['pending','Pending'],['confirmed','Confirmed']].map(([v,l])=>(
+      <div style={{display:'flex',gap:6,marginBottom:16,flexWrap:'wrap'}}>
+        {[['all','All'],['pending','Pending'],['confirmed','Confirmed'],['cancelled','Cancelled']].map(([v,l])=>(
           <button key={v} onClick={()=>setFilter(v)} style={{background:filter===v?'var(--header)':'var(--card)',color:filter===v?'#fff':'var(--text2)',border:`1px solid ${filter===v?'var(--header)':'var(--border)'}`,borderRadius:100,padding:'6px 14px',fontSize:13,fontWeight:filter===v?500:400,cursor:'pointer'}}>
-            {l}{v==='pending'&&stats.pending>0?` (${stats.pending})`:''}
+            {l}{v==='pending'&&stats.pending>0?` (${stats.pending})`:v==='cancelled'&&stats.cancelled>0?` (${stats.cancelled})`:''}
           </button>
         ))}
       </div>
@@ -709,52 +709,28 @@ function AdminView({bookings,blockedDates,session,onAdminCancel,onAdminConfirm,o
         </div>
       )}
 
-      {/* Cancel confirmation panel */}
-      {cancelTarget&&(
-        <div style={{background:'#FEF5F5',borderRadius:16,padding:22,border:'2px solid #F0A0A0',marginBottom:20}}>
-          <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:600,marginBottom:4,color:'#7A2020'}}>Cancel Booking</h3>
-          <p style={{fontSize:13,color:'#9A3030',marginBottom:16}}>
-            {cancelTarget.name} · {prettyDate(cancelTarget.date)} · {SLOTS.find(s=>s.id===cancelTarget.slotId)?.time}
-          </p>
-          <label style={{fontSize:13,color:'var(--text2)',display:'block',marginBottom:6}}>Reason <span style={{color:'var(--muted)'}}>(optional — included in WhatsApp if notifying)</span></label>
-          <textarea value={cancelReason} onChange={e=>setCancelReason(e.target.value)} placeholder="e.g. Fully booked, staff unavailable…" rows={2}
-            style={{width:'100%',padding:'11px 14px',border:'1px solid var(--border)',borderRadius:8,fontSize:14,color:'var(--text)',background:'var(--card)',resize:'vertical',fontFamily:"'DM Sans',sans-serif",marginBottom:14}}/>
-          <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
-            <button onClick={()=>{
-              const slot=SLOTS.find(s=>s.id===cancelTarget.slotId);
-              const msg=encodeURIComponent(`Hi ${cancelTarget.name}, we regret to inform you that your Bloom Facial appointment has been cancelled.\n\n📅 ${prettyDate(cancelTarget.date)}\n🕐 ${slot?.time}${cancelReason?'\n\nReason: '+cancelReason:''}\n\nWe apologise for the inconvenience. Please contact us to rebook.\n\n— Bloom Facial`);
-              window.open(`https://wa.me/${toWAPhone(cancelTarget.phone)}?text=${msg}`,'_blank');
-              onAdminCancel(cancelTarget.id); setCancelTarget(null); setCancelReason('');
-            }} style={{background:'#9A3030',color:'#fff',border:'none',borderRadius:8,padding:'10px 20px',fontSize:14,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',gap:8}}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-              Cancel & Notify via WhatsApp
-            </button>
-            <button onClick={()=>{ onAdminCancel(cancelTarget.id); setCancelTarget(null); setCancelReason(''); }} style={{background:'none',border:'1px solid #F0A0A0',borderRadius:8,padding:'10px 18px',fontSize:14,color:'#9A3030',fontWeight:500,cursor:'pointer'}}>Cancel without notifying</button>
-            <button onClick={()=>{setCancelTarget(null);setCancelReason('');}} style={{background:'none',border:'1px solid var(--border)',borderRadius:8,padding:'10px 18px',fontSize:14,color:'var(--text2)',cursor:'pointer'}}>Keep Booking</button>
-          </div>
-        </div>
-      )}
-
       {/* Booking list */}
       {filtered.length===0?(
         <div style={{textAlign:'center',padding:'60px 0',color:'var(--muted)',fontSize:15,fontStyle:'italic'}}>No bookings in this view</div>
       ):(
         <div style={{display:'flex',flexDirection:'column',gap:10}}>
           {filtered.map(b=>{
-            const slot=SLOTS.find(s=>s.id===b.slotId), ok=true;
-            const isPending=b.status==='pending';
+            const slot=SLOTS.find(s=>s.id===b.slotId);
+            const isPending=b.status==='pending', isCancelled=b.status==='cancelled';
             const [,mm,dd]=b.date.split('-');
+            const waIcon=<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>;
             return(
-              <div key={b.id} className="booking-row bk-row" style={{background:isPending?'#FFFDF0':'var(--card)',borderRadius:14,padding:'15px 18px',border:`1px solid ${isPending?'#E8D898':'var(--border)'}`,display:'flex',alignItems:'center',justifyContent:'space-between',gap:14}}>
+              <div key={b.id} className="booking-row bk-row" style={{background:isCancelled?'#F7F5F0':isPending?'#FFFDF0':'var(--card)',borderRadius:14,padding:'15px 18px',border:`1px solid ${isCancelled?'#DDD8CE':isPending?'#E8D898':'var(--border)'}`,display:'flex',alignItems:'center',justifyContent:'space-between',gap:14,opacity:isCancelled?0.75:1}}>
                 <div style={{display:'flex',gap:16,alignItems:'center',flex:1,minWidth:0,flexWrap:'wrap'}}>
-                  <div style={{background:isPending?'#FEF8E4':'var(--accent-lt)',borderRadius:10,padding:'8px 12px',textAlign:'center',minWidth:52,flexShrink:0}}>
-                    <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:isPending?'#B08020':'var(--accent)',lineHeight:1}}>{dd}</div>
+                  <div style={{background:isCancelled?'#EBEBEB':isPending?'#FEF8E4':'var(--accent-lt)',borderRadius:10,padding:'8px 12px',textAlign:'center',minWidth:52,flexShrink:0}}>
+                    <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:isCancelled?'#999':isPending?'#B08020':'var(--accent)',lineHeight:1}}>{dd}</div>
                     <div style={{fontSize:10,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.08em',marginTop:2}}>{MONTHS[parseInt(mm)-1].slice(0,3)}</div>
                   </div>
                   <div>
                     <div style={{fontWeight:600,fontSize:15,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
                       {b.name}
                       {isPending&&<span style={{background:'#FFF0C0',color:'#9A7820',border:'1px solid #E8D880',borderRadius:100,padding:'2px 8px',fontSize:11,fontWeight:500}}>Pending</span>}
+                      {isCancelled&&<span style={{background:'#F0EEEB',color:'#888',border:'1px solid #D8D4CC',borderRadius:100,padding:'2px 8px',fontSize:11,fontWeight:500}}>Cancelled</span>}
                     </div>
                     <div style={{fontSize:13,color:'var(--text2)',marginTop:2}}>{b.phone}</div>
                   </div>
@@ -767,23 +743,32 @@ function AdminView({bookings,blockedDates,session,onAdminCancel,onAdminConfirm,o
                   </div>
                 </div>
                 <div className="bk-actions" style={{display:'flex',gap:8,flexShrink:0}}>
-                  {isPending&&(
+                  {!isCancelled&&isPending&&(
                     <button className="confirm-btn" onClick={()=>onAdminConfirm(b.id)}
                       style={{background:'#EAF5E4',border:'1px solid #B8D8A8',color:'#2A5A1E',borderRadius:8,padding:'10px 14px',fontSize:13,fontWeight:500,cursor:'pointer',minHeight:44,transition:'all .2s',whiteSpace:'nowrap'}}>✓ Confirm</button>
                   )}
-                  <button className="cancel-btn" onClick={()=>{setCancelTarget(b);setCancelReason('');}}
-                    style={{background:'none',border:'1px solid #F0A0A0',color:'#9A3030',borderRadius:8,padding:'10px 14px',fontSize:13,fontWeight:500,cursor:'pointer',minHeight:44,transition:'all .2s',whiteSpace:'nowrap'}}>
-                    Cancel
-                  </button>
+                  {!isCancelled&&(
+                    <button className="cancel-btn" onClick={()=>onAdminCancel(b.id)}
+                      style={{background:'none',border:'1px solid #F0A0A0',color:'#9A3030',borderRadius:8,padding:'10px 14px',fontSize:13,fontWeight:500,cursor:'pointer',minHeight:44,transition:'all .2s',whiteSpace:'nowrap'}}>
+                      Cancel
+                    </button>
+                  )}
                   <button onClick={()=>{
-                    const msg=isPending
-                      ?encodeURIComponent(`Hi ${b.name}, this is a reminder that your Bloom Facial booking is pending payment.\n\n📅 ${prettyDate(b.date)}\n🕐 ${slot?.time}\n\nPlease complete your PayNow transfer of S$${PRICE} and WhatsApp us your receipt to confirm your slot.\n\n— Bloom Facial`)
-                      :encodeURIComponent(`Hi ${b.name}! 🌸 Your Bloom Facial appointment is confirmed.\n\n📅 ${prettyDate(b.date)}\n🕐 ${slot?.time}\n\nWe look forward to seeing you! Please arrive 5 minutes early.\n\n— Bloom Facial`);
+                    const msg=isCancelled
+                      ?encodeURIComponent(`Hi ${b.name}, we wanted to confirm that your Bloom Facial appointment has been cancelled.\n\n📅 ${prettyDate(b.date)}\n🕐 ${slot?.time}\n\nWe apologise for the inconvenience. Please contact us to rebook.\n\n— Bloom Facial`)
+                      :isPending
+                        ?encodeURIComponent(`Hi ${b.name}, this is a reminder that your Bloom Facial booking is pending payment.\n\n📅 ${prettyDate(b.date)}\n🕐 ${slot?.time}\n\nPlease complete your PayNow transfer of S$${PRICE} and WhatsApp us your receipt to confirm your slot.\n\n— Bloom Facial`)
+                        :encodeURIComponent(`Hi ${b.name}! 🌸 Your Bloom Facial appointment is confirmed.\n\n📅 ${prettyDate(b.date)}\n🕐 ${slot?.time}\n\nWe look forward to seeing you! Please arrive 5 minutes early.\n\n— Bloom Facial`);
                     window.open(`https://wa.me/${toWAPhone(b.phone)}?text=${msg}`,'_blank');
                   }} style={{background:'none',border:'1px solid #25D366',color:'#25D366',borderRadius:8,padding:'10px 14px',fontSize:13,fontWeight:500,cursor:'pointer',minHeight:44,transition:'all .2s',display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                    Notify
+                    {waIcon} Notify
                   </button>
+                  {isCancelled&&(
+                    <button onClick={()=>onAdminDelete(b.id)}
+                      style={{background:'none',border:'1px solid #DDD8CE',color:'#999',borderRadius:8,padding:'10px 14px',fontSize:13,fontWeight:500,cursor:'pointer',minHeight:44,transition:'all .2s',whiteSpace:'nowrap'}}>
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -840,7 +825,7 @@ function App(){
 
   /* ── Booking handlers ── */
   const handleBook=async(date,slotId,name,phone)=>{
-    if(bookings.find(b=>b.date===date&&b.slotId===slotId)){
+    if(bookings.find(b=>b.date===date&&b.slotId===slotId&&b.status!=='cancelled')){
       showToast('This slot is already held or booked.','error'); return null;
     }
     const id=genId();
@@ -860,9 +845,15 @@ function App(){
   };
 
   const handleAdminCancel=async(id)=>{
+    const{error}=await sb.from('bookings').update({status:'cancelled'}).eq('id',id);
+    if(error) showToast('Could not cancel booking.','error');
+    else showToast('Booking cancelled.');
+  };
+
+  const handleAdminDelete=async(id)=>{
     const{error}=await sb.from('bookings').delete().eq('id',id);
-    if(error) showToast('Could not remove booking.','error');
-    else showToast('Booking removed.');
+    if(error) showToast('Could not delete booking.','error');
+    else showToast('Booking permanently deleted.');
   };
 
   const handleAdminConfirm=async(id)=>{
@@ -948,7 +939,7 @@ function App(){
         ):view==='customer'?(
           <CustomerView bookings={bookings} blockedDates={blockedDates} onBook={handleBook} onCancel={handleCancel} showToast={showToast}/>
         ):(
-          <AdminView bookings={bookings} blockedDates={blockedDates} session={session} onAdminCancel={handleAdminCancel} onAdminConfirm={handleAdminConfirm} onAdminAdd={handleAdminAdd} onBlockDate={handleBlockDate} onUnblockDate={handleUnblockDate} onSignIn={handleSignIn} onSignOut={handleSignOut}/>
+          <AdminView bookings={bookings} blockedDates={blockedDates} session={session} onAdminCancel={handleAdminCancel} onAdminConfirm={handleAdminConfirm} onAdminAdd={handleAdminAdd} onAdminDelete={handleAdminDelete} onBlockDate={handleBlockDate} onUnblockDate={handleUnblockDate} onSignIn={handleSignIn} onSignOut={handleSignOut}/>
         )}
       </main>
 
