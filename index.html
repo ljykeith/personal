@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bloom Facial — Appointments</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:         #F2EEE5;
+      --card:       #FDFAF6;
+      --header:     #2B3820;
+      --accent:     #8A7250;
+      --accent-lt:  #EBE4D4;
+      --gold:       #C4AD80;
+      --text:       #221E13;
+      --text2:      #68655A;
+      --muted:      #A8A090;
+      --border:     #D4CCB8;
+      --border-lt:  #E8E2D4;
+    }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; -webkit-font-smoothing: antialiased; }
+    button, input, select { font-family: 'DM Sans', sans-serif; }
+    input:focus, select:focus { outline: none; border-color: var(--accent) !important; box-shadow: 0 0 0 3px rgba(138,114,80,0.14) !important; }
+
+    .day-btn:hover:not(:disabled) { background: var(--accent-lt) !important; }
+    .slot-btn { transition: border-color 0.15s, background 0.15s; }
+    .slot-btn:hover:not(:disabled) { border-color: var(--accent) !important; }
+    .primary-btn:hover:not(:disabled) { opacity: 0.86; }
+    .cancel-btn:hover:not(:disabled) { background: #FEF2F2 !important; }
+    .google-btn:hover { border-color: var(--accent) !important; background: var(--accent-lt) !important; }
+    .booking-row { transition: box-shadow 0.2s; }
+    .booking-row:hover { box-shadow: 0 2px 14px rgba(0,0,0,0.07); }
+
+    .two-col   { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+    .three-col { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+    .add-grid  { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+    @media (max-width: 640px) {
+      .two-col   { grid-template-columns: 1fr; gap: 18px; }
+      .three-col { grid-template-columns: 1fr 1fr; }
+      .add-grid  { grid-template-columns: 1fr; }
+      .hero-h1   { font-size: 26px !important; }
+      .hero-sub  { font-size: 13px !important; }
+      .hide-sm   { display: none !important; }
+      .bk-row    { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
+      .bk-cancel { width: 100%; }
+      .section-pad { padding: 0 16px 80px !important; }
+      .hero-pad  { padding: 20px 16px 32px !important; }
+      .hdr-pad   { padding: 0 16px !important; }
+    }
+    @media (max-width: 380px) {
+      .three-col { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useMemo } = React;
+
+    /* ── Staff mode: only active at ?staff=true ── */
+    const IS_STAFF = window.location.search.includes('staff=true');
+
+    /* ── Constants ── */
+    const SLOTS = [
+      { id:1, label:'Morning',   time:'10:00 AM – 1:00 PM' },
+      { id:2, label:'Afternoon', time:'2:00 PM – 5:00 PM'  },
+      { id:3, label:'Evening',   time:'5:00 PM – 8:00 PM'  },
+    ];
+    const MONTHS = ['January','February','March','April','May','June',
+                    'July','August','September','October','November','December'];
+    const WDAYS  = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+
+    /* ── Helpers ── */
+    const today    = () => { const d=new Date(); d.setHours(0,0,0,0); return d; };
+    const fmtDate  = d  => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const parseDate= s  => { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); };
+    const isBizDay = d  => { const w=d.getDay(); return w>=2&&w<=6; };
+    const genId    = () => Math.random().toString(36).slice(2,10).toUpperCase();
+    const prettyDate = s => parseDate(s).toLocaleDateString('en-SG',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+    const shortDate  = s => parseDate(s).toLocaleDateString('en-SG',{weekday:'short',day:'numeric',month:'short'});
+    const canBookDate= d => { const t=today(),mx=new Date(t);mx.setMonth(mx.getMonth()+2); return isBizDay(d)&&d>=t&&d<=mx; };
+    const canCancel  = (ds,sid) => { const h={1:10,2:14,3:17}[sid],st=parseDate(ds);st.setHours(h,0,0,0);return(st-new Date())>48*3600*1000; };
+
+    /* ── Seed ── */
+    const initBookings = () => {
+      const bks=[];
+      let d=new Date(today()); d.setDate(d.getDate()+1);
+      while(!isBizDay(d)) d.setDate(d.getDate()+1);
+      bks.push({id:genId(),date:fmtDate(d),slotId:1,name:'Sarah Lim',phone:'+65 9123 4567',createdAt:new Date().toISOString()});
+      let d2=new Date(d); d2.setDate(d.getDate()+3);
+      while(!isBizDay(d2)) d2.setDate(d2.getDate()+1);
+      bks.push({id:genId(),date:fmtDate(d2),slotId:3,name:'Marcus Tan',phone:'+65 8765 4321',createdAt:new Date().toISOString()});
+      return bks;
+    };
+
+    /* ── Toast ── */
+    function Toast({ toast }) {
+      if(!toast) return null;
+      const err=toast.type==='error';
+      return (
+        <div style={{
+          position:'fixed',bottom:20,left:'50%',transform:'translateX(-50%)',zIndex:9999,
+          background:err?'#FEE8E8':'#EAF2E4',color:err?'#7A2020':'#2C4C22',
+          padding:'12px 22px',borderRadius:100,fontWeight:500,fontSize:14,
+          boxShadow:'0 8px 28px rgba(0,0,0,0.13)',display:'flex',alignItems:'center',
+          gap:8,maxWidth:'92vw',
+        }}>
+          <span>{err?'⚠':'✓'}</span>{toast.msg}
+        </div>
+      );
+    }
+
+    /* ── Calendar ── */
+    function CalendarPicker({ bookings, selectedDate, onSelect }) {
+      const t=today(), maxDate=new Date(t); maxDate.setMonth(maxDate.getMonth()+2);
+      const [yr,setYr]=useState(t.getFullYear());
+      const [mo,setMo]=useState(t.getMonth());
+
+      const goBack=()=>{ const p=new Date(yr,mo-1,1); if(p>=new Date(t.getFullYear(),t.getMonth(),1)){if(mo===0){setMo(11);setYr(y=>y-1);}else setMo(m=>m-1);}};
+      const goFwd =()=>{ const n=new Date(yr,mo+1,1); if(n<=new Date(maxDate.getFullYear(),maxDate.getMonth(),1)){if(mo===11){setMo(0);setYr(y=>y+1);}else setMo(m=>m+1);}};
+
+      const firstDOW=new Date(yr,mo,1).getDay(), dim=new Date(yr,mo+1,0).getDate();
+      const cells=[...Array(firstDOW).fill(null)];
+      for(let d=1;d<=dim;d++) cells.push(new Date(yr,mo,d));
+
+      const getStatus=date=>{
+        if(!date) return 'empty';
+        if(!canBookDate(date)) return 'disabled';
+        const n=bookings.filter(b=>b.date===fmtDate(date)).length;
+        return n>=3?'full':n>0?'partial':'available';
+      };
+      const selStr=selectedDate?fmtDate(selectedDate):null;
+      const todStr=fmtDate(t);
+
+      return (
+        <div>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+            <button onClick={goBack} style={{background:'none',border:'1px solid var(--border)',borderRadius:8,width:38,height:38,fontSize:18,color:'var(--text)',cursor:'pointer',lineHeight:1}}>‹</button>
+            <span style={{fontFamily:"'Cormorant Garamond',serif",fontSize:19,fontWeight:600}}>{MONTHS[mo]} {yr}</span>
+            <button onClick={goFwd}  style={{background:'none',border:'1px solid var(--border)',borderRadius:8,width:38,height:38,fontSize:18,color:'var(--text)',cursor:'pointer',lineHeight:1}}>›</button>
+          </div>
+
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:6}}>
+            {WDAYS.map(d=><div key={d} style={{textAlign:'center',fontSize:11,fontWeight:600,color:'var(--muted)',letterSpacing:'0.06em',paddingBottom:3}}>{d}</div>)}
+          </div>
+
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3}}>
+            {cells.map((date,i)=>{
+              const st=getStatus(date);
+              const isSel=date&&fmtDate(date)===selStr;
+              const isTod=date&&fmtDate(date)===todStr;
+              const ok=st==='available'||st==='partial';
+              return (
+                <button key={i} className="day-btn"
+                  onClick={()=>ok&&onSelect(date)} disabled={!ok}
+                  style={{
+                    position:'relative',width:'100%',aspectRatio:'1',minHeight:40,border:'none',borderRadius:8,
+                    background:isSel?'var(--header)':isTod&&!isSel?'#E8E4D4':'transparent',
+                    color:isSel?'#fff':!date||st==='disabled'?'#C8C0A8':st==='full'?'var(--muted)':'var(--text)',
+                    fontSize:13,fontWeight:isSel?600:400,cursor:ok?'pointer':'default',transition:'background 0.12s',
+                  }}>
+                  {date?date.getDate():''}
+                  {ok&&!isSel&&<span style={{position:'absolute',bottom:3,left:'50%',transform:'translateX(-50%)',width:4,height:4,borderRadius:'50%',background:st==='partial'?'#B07840':'var(--accent)'}}/>}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{display:'flex',gap:14,marginTop:14,fontSize:11,color:'var(--muted)',flexWrap:'wrap'}}>
+            {[['var(--accent)','Available'],['#B07840','Partially booked'],['var(--border)','Closed / Full']].map(([c,l])=>(
+              <span key={l} style={{display:'flex',alignItems:'center',gap:5}}>
+                <span style={{width:7,height:7,borderRadius:'50%',background:c,display:'inline-block',flexShrink:0}}/>{l}
+              </span>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    /* ── Customer View ── */
+    function CustomerView({ bookings, onBook, onCancel }) {
+      const [tab,setTab]=useState('book');
+      const [selDate,setSelDate]=useState(null);
+      const [selSlot,setSelSlot]=useState(null);
+      const [form,setForm]=useState({name:'',phone:''});
+      const [confirmed,setConfirmed]=useState(null);
+      const [lookupId,setLookupId]=useState('');
+      const [found,setFound]=useState(null);
+      const [lookupErr,setLookupErr]=useState('');
+
+      const dateSlots=useMemo(()=>{
+        if(!selDate) return [];
+        const ds=fmtDate(selDate);
+        return SLOTS.map(s=>({...s,booked:!!bookings.find(b=>b.date===ds&&b.slotId===s.id)}));
+      },[selDate,bookings]);
+
+      const handleBook=()=>{
+        if(!selDate||!selSlot||!form.name.trim()||!form.phone.trim()) return;
+        const bk=onBook(fmtDate(selDate),selSlot,form.name.trim(),form.phone.trim());
+        if(bk){setConfirmed(bk);setSelDate(null);setSelSlot(null);setForm({name:'',phone:''});}
+      };
+      const handleLookup=()=>{
+        const b=bookings.find(x=>x.id===lookupId.trim().toUpperCase());
+        if(b){setFound(b);setLookupErr('');}else{setFound(null);setLookupErr('No booking found with this reference ID.');}
+      };
+
+      const inp={width:'100%',padding:'13px 15px',border:'1px solid var(--border)',borderRadius:10,fontSize:16,color:'var(--text)',background:'var(--card)'};
+
+      return (
+        <div className="section-pad" style={{maxWidth:900,margin:'0 auto',padding:'0 20px 80px'}}>
+          {/* Tabs */}
+          <div style={{display:'flex',borderBottom:'1.5px solid var(--border)',marginBottom:26}}>
+            {[['book','Book an Appointment'],['my-booking','My Booking']].map(([id,lbl])=>(
+              <button key={id} onClick={()=>setTab(id)} style={{
+                background:'none',border:'none',padding:'12px 22px',fontSize:15,
+                fontWeight:tab===id?600:400,color:tab===id?'var(--text)':'var(--muted)',
+                borderBottom:tab===id?'2px solid var(--accent)':'2px solid transparent',
+                marginBottom:-1.5,cursor:'pointer',transition:'color 0.2s',
+              }}>{lbl}</button>
+            ))}
+          </div>
+
+          {tab==='book'&&(
+            <div>
+              {confirmed&&(
+                <div style={{background:'#EDF5E8',border:'1px solid #B8D8A8',borderRadius:16,padding:22,marginBottom:24}}>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:600,color:'#2A4A1E',marginBottom:10}}>Booking Confirmed</div>
+                  <p style={{fontSize:14,color:'#385830',marginBottom:5}}>Reference: <strong style={{fontFamily:'monospace',letterSpacing:'0.1em'}}>{confirmed.id}</strong></p>
+                  <p style={{fontSize:14,color:'#385830',marginBottom:5}}>📅 {prettyDate(confirmed.date)} · {SLOTS.find(s=>s.id===confirmed.slotId)?.time}</p>
+                  <p style={{fontSize:14,color:'#385830',marginBottom:14}}>📱 WhatsApp confirmation sent to {confirmed.phone}</p>
+                  <p style={{fontSize:12,color:'#70986A',marginBottom:14}}>Save your reference ID to view or cancel this booking.</p>
+                  <button onClick={()=>setConfirmed(null)} style={{background:'none',border:'1px solid #B8D8A8',borderRadius:8,padding:'8px 18px',fontSize:13,color:'#385830',cursor:'pointer'}}>← Book another</button>
+                </div>
+              )}
+
+              <div className="two-col">
+                {/* Calendar */}
+                <div style={{background:'var(--card)',borderRadius:16,padding:22,border:'1px solid var(--border)'}}>
+                  <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:600,marginBottom:18}}>Select a Date</h3>
+                  <CalendarPicker bookings={bookings} selectedDate={selDate} onSelect={d=>{setSelDate(d);setSelSlot(null);}}/>
+                </div>
+
+                {/* Slots + form */}
+                <div style={{display:'flex',flexDirection:'column',gap:18}}>
+                  <div style={{background:'var(--card)',borderRadius:16,padding:22,border:'1px solid var(--border)'}}>
+                    <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:600,marginBottom:16}}>
+                      {selDate?`${shortDate(fmtDate(selDate))} — Slots`:'Select a Slot'}
+                    </h3>
+                    {!selDate&&<p style={{fontSize:14,color:'var(--muted)',fontStyle:'italic'}}>Choose a date on the calendar to see available slots.</p>}
+                    {selDate&&(
+                      <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                        {dateSlots.map(s=>(
+                          <button key={s.id} className="slot-btn" disabled={s.booked} onClick={()=>!s.booked&&setSelSlot(s.id)}
+                            style={{
+                              padding:'15px 18px',borderRadius:12,
+                              border:`2px solid ${selSlot===s.id?'var(--accent)':s.booked?'var(--border-lt)':'var(--border)'}`,
+                              background:selSlot===s.id?'var(--accent-lt)':s.booked?'#F7F4EE':'var(--card)',
+                              cursor:s.booked?'not-allowed':'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',textAlign:'left',
+                            }}>
+                            <div>
+                              <div style={{fontWeight:600,fontSize:15,color:s.booked?'var(--muted)':'var(--text)'}}>{s.label}</div>
+                              <div style={{fontSize:13,color:s.booked?'#C0B8A8':'var(--text2)',marginTop:2}}>{s.time}</div>
+                            </div>
+                            <span style={{fontSize:12,fontWeight:500,color:s.booked?'var(--muted)':selSlot===s.id?'var(--accent)':'var(--text2)'}}>{s.booked?'Full':'Available'}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {selSlot&&(
+                    <div style={{background:'var(--card)',borderRadius:16,padding:22,border:'1px solid var(--border)'}}>
+                      <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:600,marginBottom:16}}>Your Details</h3>
+                      <div style={{display:'flex',flexDirection:'column',gap:14}}>
+                        <div>
+                          <label style={{fontSize:13,fontWeight:500,color:'var(--text2)',display:'block',marginBottom:7}}>Full Name</label>
+                          <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. Sarah Lim" style={inp}/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:13,fontWeight:500,color:'var(--text2)',display:'block',marginBottom:7}}>Contact Number</label>
+                          <input value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} placeholder="e.g. +65 9123 4567" style={inp}/>
+                        </div>
+                        <button className="primary-btn" onClick={handleBook} disabled={!form.name.trim()||!form.phone.trim()}
+                          style={{
+                            background:form.name.trim()&&form.phone.trim()?'var(--header)':'#DDD8CE',
+                            color:form.name.trim()&&form.phone.trim()?'#fff':'var(--muted)',
+                            border:'none',borderRadius:10,padding:'15px',minHeight:50,
+                            fontSize:15,fontWeight:600,cursor:form.name.trim()&&form.phone.trim()?'pointer':'not-allowed',
+                            marginTop:4,transition:'opacity 0.2s',
+                          }}>Confirm Booking</button>
+                        <p style={{fontSize:12,color:'var(--muted)',textAlign:'center'}}>Cancellations accepted up to 48 hours before your appointment.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tab==='my-booking'&&(
+            <div style={{maxWidth:480}}>
+              <div style={{background:'var(--card)',borderRadius:16,padding:22,border:'1px solid var(--border)',marginBottom:18}}>
+                <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:600,marginBottom:16}}>Look Up Your Booking</h3>
+                <label style={{fontSize:13,fontWeight:500,color:'var(--text2)',display:'block',marginBottom:7}}>Booking Reference ID</label>
+                <div style={{display:'flex',gap:10}}>
+                  <input value={lookupId} onChange={e=>setLookupId(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLookup()}
+                    placeholder="e.g. AB3X7F2D" style={{...inp,flex:1,fontFamily:'monospace',letterSpacing:'0.1em',fontSize:14}}/>
+                  <button className="primary-btn" onClick={handleLookup} style={{background:'var(--header)',color:'#fff',border:'none',borderRadius:10,padding:'13px 18px',fontSize:14,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',minHeight:50}}>Look Up</button>
+                </div>
+                {lookupErr&&<p style={{fontSize:13,color:'#9A3030',marginTop:8}}>{lookupErr}</p>}
+              </div>
+              {found&&(
+                <div style={{background:'var(--card)',borderRadius:16,padding:22,border:'1px solid var(--border)'}}>
+                  <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:600,marginBottom:16}}>Appointment Details</h3>
+                  <table style={{width:'100%',borderCollapse:'collapse',marginBottom:20}}>
+                    {[['Reference',<span style={{fontFamily:'monospace',letterSpacing:'0.08em',fontWeight:600}}>{found.id}</span>],['Name',found.name],['Contact',found.phone],['Date',prettyDate(found.date)],['Time',SLOTS.find(s=>s.id===found.slotId)?.time]].map(([l,v])=>(
+                      <tr key={l}>
+                        <td style={{fontSize:13,color:'var(--muted)',padding:'7px 0',width:'32%',verticalAlign:'top'}}>{l}</td>
+                        <td style={{fontSize:13,color:'var(--text)',padding:'7px 0',fontWeight:500}}>{v}</td>
+                      </tr>
+                    ))}
+                  </table>
+                  {canCancel(found.date,found.slotId)?(
+                    <button className="cancel-btn" onClick={()=>{onCancel(found.id);setFound(null);setLookupId('');}} style={{width:'100%',padding:'13px',borderRadius:10,border:'2px solid #F0A0A0',background:'var(--card)',color:'#9A3030',fontSize:14,fontWeight:600,cursor:'pointer',minHeight:50,transition:'all 0.2s'}}>Cancel This Appointment</button>
+                  ):(
+                    <div style={{background:'#FEF5F5',borderRadius:10,padding:'12px 16px',textAlign:'center'}}>
+                      <p style={{fontSize:13,color:'#9A3030'}}>⚠ Cancellations are not possible within 48 hours of the appointment.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── Admin View ── */
+    function AdminView({ bookings, onAdminCancel, onAdminAdd, gcalSynced }) {
+      const [loggedIn,setLoggedIn]=useState(false);
+      const [showAdd,setShowAdd]=useState(false);
+      const [addForm,setAddForm]=useState({name:'',phone:'',date:'',slotId:1});
+      const [addErr,setAddErr]=useState('');
+
+      const upcoming=useMemo(()=>{
+        const ts=fmtDate(today());
+        return [...bookings].filter(b=>b.date>=ts).sort((a,b)=>a.date.localeCompare(b.date)||a.slotId-b.slotId);
+      },[bookings]);
+
+      const stats=useMemo(()=>{
+        const ts=fmtDate(today());
+        return{upcoming:upcoming.length,total:bookings.length,todayOpen:3-bookings.filter(b=>b.date===ts).length};
+      },[bookings,upcoming]);
+
+      const handleAdd=()=>{
+        if(!addForm.name||!addForm.phone||!addForm.date){setAddErr('Please fill in all fields.');return;}
+        const d=parseDate(addForm.date);
+        if(!isBizDay(d)){setAddErr('Please select a Tuesday–Saturday.');return;}
+        const t=today(),mx=new Date(t);mx.setMonth(mx.getMonth()+2);
+        if(d<t||d>mx){setAddErr('Date must be within the 2-month booking window.');return;}
+        if(bookings.find(b=>b.date===addForm.date&&b.slotId===addForm.slotId)){setAddErr('This slot is already booked.');return;}
+        onAdminAdd(addForm.date,addForm.slotId,addForm.name,addForm.phone);
+        setShowAdd(false);setAddForm({name:'',phone:'',date:'',slotId:1});setAddErr('');
+      };
+
+      const inp={width:'100%',padding:'11px 14px',border:'1px solid var(--border)',borderRadius:8,fontSize:14,color:'var(--text)',background:'var(--card)'};
+
+      if(!loggedIn) return (
+        <div style={{maxWidth:400,margin:'80px auto',padding:'0 20px',textAlign:'center'}}>
+          <div style={{background:'var(--card)',borderRadius:20,padding:44,border:'1px solid var(--border)',boxShadow:'0 4px 24px rgba(0,0,0,0.06)'}}>
+            <div style={{width:52,height:52,background:'var(--accent-lt)',borderRadius:14,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',fontFamily:"'Cormorant Garamond',serif",fontSize:22,color:'var(--accent)'}}>✿</div>
+            <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,fontWeight:600,marginBottom:8}}>Staff Access</h2>
+            <p style={{fontSize:14,color:'var(--muted)',marginBottom:30}}>Sign in to manage appointments and sync to Google Calendar</p>
+            <button className="google-btn" onClick={()=>setLoggedIn(true)} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,width:'100%',padding:'14px 20px',borderRadius:12,border:'1.5px solid var(--border)',background:'var(--card)',fontSize:15,fontWeight:600,color:'var(--text)',cursor:'pointer',transition:'all 0.2s'}}>
+              <svg width="20" height="20" viewBox="0 0 48 48">
+                <path fill="#4285F4" d="M47.5 24.5c0-1.6-.1-3.2-.4-4.7H24v9h13.1c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 7.5-10.4 7.5-17.5z"/>
+                <path fill="#34A853" d="M24 48c6.5 0 12-2.1 16-5.8l-7.7-6c-2.1 1.4-4.8 2.3-8.3 2.3-6.4 0-11.8-4.3-13.7-10l-8 6.1C6.1 42.6 14.5 48 24 48z"/>
+                <path fill="#FBBC05" d="M10.3 28.5c-.5-1.4-.8-2.9-.8-4.5s.3-3.1.8-4.5l-8-6.1C.8 16.8 0 20.3 0 24s.8 7.2 2.3 10.6l8-6.1z"/>
+                <path fill="#EA4335" d="M24 9.5c3.5 0 6.7 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.4 0 24 0 14.5 0 6.1 5.4 2.3 13.4l8 6.1C12.2 13.8 17.6 9.5 24 9.5z"/>
+              </svg>
+              Sign in with Google
+            </button>
+            <p style={{fontSize:12,color:'#C0B8A8',marginTop:14}}>Demo: click to simulate sign-in</p>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="section-pad" style={{maxWidth:960,margin:'0 auto',padding:'0 20px 80px'}}>
+          {/* Stats */}
+          <div className="three-col" style={{marginBottom:26}}>
+            {[{v:stats.upcoming,l:'Upcoming bookings'},{v:stats.total,l:'Total bookings'},{v:stats.todayOpen,l:'Slots open today'}].map(s=>(
+              <div key={s.l} style={{background:'var(--card)',borderRadius:14,padding:'18px 20px',border:'1px solid var(--border)'}}>
+                <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:38,fontWeight:600,lineHeight:1}}>{s.v}</div>
+                <div style={{fontSize:13,color:'var(--muted)',marginTop:5}}>{s.l}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Header */}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:12}}>
+            <h2 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:600}}>Upcoming Appointments</h2>
+            <div style={{display:'flex',gap:14,alignItems:'center',flexWrap:'wrap'}}>
+              <span style={{display:'flex',alignItems:'center',gap:6,fontSize:12,fontWeight:500,color:gcalSynced?'#4A7A38':'#9A7828'}}>
+                <span style={{width:7,height:7,borderRadius:'50%',background:gcalSynced?'#5A9A48':'#C4A038',display:'inline-block'}}/>
+                {gcalSynced?'Synced to Google Calendar':'Syncing…'}
+              </span>
+              <button className="primary-btn" onClick={()=>{setShowAdd(true);setAddErr('');}} style={{background:'var(--header)',color:'#fff',border:'none',borderRadius:10,padding:'10px 18px',fontSize:14,fontWeight:600,cursor:'pointer'}}>+ Add Booking</button>
+            </div>
+          </div>
+
+          {/* Add form */}
+          {showAdd&&(
+            <div style={{background:'var(--card)',borderRadius:16,padding:22,border:'2px solid var(--accent)',marginBottom:20}}>
+              <h3 style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:600,marginBottom:14}}>New Booking</h3>
+              <div className="add-grid" style={{marginBottom:14}}>
+                {[{l:'Customer Name',k:'name',type:'text',ph:'Full name'},{l:'Contact Number',k:'phone',type:'tel',ph:'+65 9xxx xxxx'},{l:'Date',k:'date',type:'date',ph:''}].map(f=>(
+                  <div key={f.k}>
+                    <label style={{fontSize:13,color:'var(--text2)',display:'block',marginBottom:6}}>{f.l}</label>
+                    <input type={f.type} value={addForm[f.k]} placeholder={f.ph} onChange={e=>setAddForm(af=>({...af,[f.k]:e.target.value}))} style={inp}/>
+                  </div>
+                ))}
+                <div>
+                  <label style={{fontSize:13,color:'var(--text2)',display:'block',marginBottom:6}}>Slot</label>
+                  <select value={addForm.slotId} onChange={e=>setAddForm(af=>({...af,slotId:Number(e.target.value)}))} style={inp}>
+                    {SLOTS.map(s=><option key={s.id} value={s.id}>{s.label} · {s.time}</option>)}
+                  </select>
+                </div>
+              </div>
+              {addErr&&<p style={{fontSize:13,color:'#9A3030',marginBottom:12}}>{addErr}</p>}
+              <div style={{display:'flex',gap:10}}>
+                <button className="primary-btn" onClick={handleAdd} style={{background:'var(--header)',color:'#fff',border:'none',borderRadius:8,padding:'10px 22px',fontSize:14,fontWeight:600,cursor:'pointer'}}>Save Booking</button>
+                <button onClick={()=>{setShowAdd(false);setAddErr('');}} style={{background:'none',border:'1px solid var(--border)',borderRadius:8,padding:'10px 22px',fontSize:14,color:'var(--text2)',cursor:'pointer'}}>Cancel</button>
+              </div>
+            </div>
+          )}
+
+          {/* List */}
+          {upcoming.length===0?(
+            <div style={{textAlign:'center',padding:'60px 0',color:'var(--muted)',fontSize:15,fontStyle:'italic'}}>No upcoming bookings</div>
+          ):(
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {upcoming.map(b=>{
+                const slot=SLOTS.find(s=>s.id===b.slotId), ok=canCancel(b.date,b.slotId);
+                const [,mm,dd]=b.date.split('-');
+                return (
+                  <div key={b.id} className="booking-row bk-row" style={{background:'var(--card)',borderRadius:14,padding:'15px 18px',border:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',gap:14}}>
+                    <div style={{display:'flex',gap:16,alignItems:'center',flex:1,minWidth:0,flexWrap:'wrap'}}>
+                      <div style={{background:'var(--accent-lt)',borderRadius:10,padding:'8px 12px',textAlign:'center',minWidth:52,flexShrink:0}}>
+                        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:'var(--accent)',lineHeight:1}}>{dd}</div>
+                        <div style={{fontSize:10,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.08em',marginTop:2}}>{MONTHS[parseInt(mm)-1].slice(0,3)}</div>
+                      </div>
+                      <div>
+                        <div style={{fontWeight:600,fontSize:15}}>{b.name}</div>
+                        <div style={{fontSize:13,color:'var(--text2)',marginTop:2}}>{b.phone}</div>
+                      </div>
+                      <div className="hide-sm" style={{borderLeft:'1px solid var(--border-lt)',paddingLeft:16}}>
+                        <div style={{fontSize:13,fontWeight:500}}>{slot?.label} Session</div>
+                        <div style={{fontSize:12,color:'var(--muted)',marginTop:2}}>{slot?.time}</div>
+                      </div>
+                      <div className="hide-sm" style={{marginLeft:'auto'}}>
+                        <span style={{fontSize:11,fontFamily:'monospace',color:'#D0C8B8',letterSpacing:'0.08em'}}>{b.id}</span>
+                      </div>
+                    </div>
+                    <div className="bk-cancel">
+                      <button className="cancel-btn" onClick={()=>ok&&onAdminCancel(b.id)} disabled={!ok}
+                        style={{background:'none',border:'1px solid',borderColor:ok?'#F0A0A0':'var(--border-lt)',color:ok?'#9A3030':'#C8C0B0',borderRadius:8,padding:'10px 16px',fontSize:13,fontWeight:500,cursor:ok?'pointer':'not-allowed',minHeight:44,width:'100%',transition:'all 0.2s'}}>
+                        {ok?'Cancel':'< 48h'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── App Root ── */
+    function App() {
+      const [view,setView]=useState('customer');
+      const [bookings,setBookings]=useState(initBookings);
+      const [toast,setToast]=useState(null);
+      const [gcalSynced,setGcalSynced]=useState(true);
+
+      const showToast=(msg,type='success')=>{setToast({msg,type});setTimeout(()=>setToast(null),3500);};
+      const sync=()=>{setGcalSynced(false);setTimeout(()=>setGcalSynced(true),1200);};
+
+      const handleBook=(date,slotId,name,phone)=>{
+        if(bookings.find(b=>b.date===date&&b.slotId===slotId)){showToast('This slot is already taken.','error');return null;}
+        const bk={id:genId(),date,slotId,name,phone,createdAt:new Date().toISOString()};
+        setBookings(p=>[...p,bk]);showToast(`WhatsApp confirmation sent to ${phone}`);sync();return bk;
+      };
+      const handleCancel=id=>{
+        const b=bookings.find(x=>x.id===id);if(!b)return;
+        if(!canCancel(b.date,b.slotId)){showToast('Cannot cancel within 48 hours.','error');return;}
+        setBookings(p=>p.filter(x=>x.id!==id));showToast('Booking cancelled successfully.');sync();
+      };
+      const handleAdminCancel=id=>{
+        const b=bookings.find(x=>x.id===id);if(!b)return;
+        if(!canCancel(b.date,b.slotId)){showToast('Within 48hr window.','error');return;}
+        setBookings(p=>p.filter(x=>x.id!==id));showToast('Booking removed.');sync();
+      };
+      const handleAdminAdd=(date,slotId,name,phone)=>{
+        setBookings(p=>[...p,{id:genId(),date,slotId,name,phone,createdAt:new Date().toISOString()}]);
+        showToast('Booking added and synced to Google Calendar.');sync();
+      };
+
+      return (
+        <div style={{minHeight:'100vh',background:'var(--bg)',fontFamily:"'DM Sans',sans-serif"}}>
+          {/* Header */}
+          <header className="hdr-pad" style={{background:'var(--header)',display:'flex',alignItems:'center',justifyContent:'space-between',height:58,padding:'0 24px',position:'sticky',top:0,zIndex:100}}>
+            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:600,color:'#fff',letterSpacing:'0.02em',display:'flex',alignItems:'center',gap:9}}>
+              <span style={{color:'var(--gold)',fontSize:15}}>✿</span>Bloom Facial
+            </div>
+            {IS_STAFF&&(
+              <nav style={{display:'flex',gap:4}}>
+                {[['customer','Booking'],['admin','Staff']].map(([id,lbl])=>(
+                  <button key={id} onClick={()=>setView(id)} style={{
+                    background:view===id?'rgba(196,173,128,0.18)':'transparent',
+                    border:`1px solid ${view===id?'rgba(196,173,128,0.4)':'transparent'}`,
+                    color:view===id?'var(--gold)':'rgba(255,255,255,0.45)',
+                    borderRadius:8,padding:'6px 14px',fontSize:13,fontWeight:500,cursor:'pointer',transition:'all 0.2s',
+                  }}>{lbl}</button>
+                ))}
+              </nav>
+            )}
+          </header>
+
+          {/* Hero */}
+          <div className="hero-pad" style={{background:'var(--header)',padding:'22px 24px 36px',borderBottom:'1px solid rgba(196,173,128,0.12)'}}>
+            <div style={{maxWidth:900,margin:'0 auto'}}>
+              <p style={{fontSize:11,letterSpacing:'0.18em',textTransform:'uppercase',color:'var(--gold)',fontWeight:500,marginBottom:7}}>
+                {view==='customer'?'Appointments':'Staff Dashboard'}
+              </p>
+              <h1 className="hero-h1" style={{fontFamily:"'Cormorant Garamond',serif",fontSize:36,fontWeight:600,color:'#fff',lineHeight:1.15,marginBottom:9}}>
+                {view==='customer'?'Book Your Facial':'Manage Bookings'}
+              </h1>
+              <p className="hero-sub" style={{fontSize:14,color:'rgba(255,255,255,0.42)'}}>
+                {view==='customer'
+                  ?'Tuesday to Saturday · Morning, Afternoon & Evening · Up to 2 months ahead'
+                  :'View, add and manage all appointments · Synced with Google Calendar'}
+              </p>
+            </div>
+          </div>
+
+          {/* Content */}
+          <main style={{paddingTop:30}}>
+            {view==='customer'
+              ?<CustomerView bookings={bookings} onBook={handleBook} onCancel={handleCancel}/>
+              :<AdminView bookings={bookings} onAdminCancel={handleAdminCancel} onAdminAdd={handleAdminAdd} gcalSynced={gcalSynced}/>
+            }
+          </main>
+
+          {/* Footer */}
+          <footer style={{textAlign:'center',padding:'26px 20px',borderTop:'1px solid var(--border)'}}>
+            <p style={{fontSize:12,color:'var(--muted)'}}>© 2025 Bloom Facial · Tue–Sat · 10am–8pm</p>
+          </footer>
+
+          <Toast toast={toast}/>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
