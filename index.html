@@ -104,7 +104,7 @@ const today     = () => { const d=new Date(); d.setHours(0,0,0,0); return d; };
 const fmtDate   = d  => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const parseDate = s  => { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); };
 const isBizDay  = d  => { const w=d.getDay(); return w>=2&&w<=6; };
-const genId     = () => Math.random().toString(36).slice(2,10).toUpperCase();
+const genId     = () => crypto.randomUUID().replace(/-/g,'').slice(0,8).toUpperCase();
 const prettyDate= s  => parseDate(s).toLocaleDateString('en-SG',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
 const shortDate = s  => parseDate(s).toLocaleDateString('en-SG',{weekday:'short',day:'numeric',month:'short'});
 const canBookDate=d  => { const t=today(),mx=new Date(t); mx.setMonth(mx.getMonth()+2); return isBizDay(d)&&d>=t&&d<=mx; };
@@ -797,7 +797,7 @@ function App(){
   /* Load all bookings from DB */
   const loadBookings=useCallback(async()=>{
     const[{data,error},{data:blocked}]=await Promise.all([
-      sb.from('bookings').select('*').order('date').order('slot_id'),
+      sb.from('bookings').select('id,date,slot_id,name,phone,status').order('date').order('slot_id'),
       sb.from('blocked_dates').select('*').order('date'),
     ]);
     if(!error) setBookings((data||[]).map(fromDB));
@@ -811,8 +811,8 @@ function App(){
     loadBookings();
 
     /* Auth state */
-    sb.auth.getSession().then(({data:{session}})=>{ setSession(session); if(session) setView('admin'); });
-    const{data:{subscription}}=sb.auth.onAuthStateChange((event,session)=>{ setSession(session); if(event==='SIGNED_IN') setView('admin'); });
+    sb.auth.getSession().then(({data:{session}})=>{ setSession(session); if(session&&STAFF_EMAILS.includes(session.user.email)) setView('admin'); });
+    const{data:{subscription}}=sb.auth.onAuthStateChange((event,session)=>{ setSession(session); if(event==='SIGNED_IN'&&session&&STAFF_EMAILS.includes(session.user.email)) setView('admin'); });
 
     /* Real-time — any change to bookings table triggers a refresh */
     const channel=sb.channel('bookings-live')
@@ -839,7 +839,7 @@ function App(){
   const handleCancel=async(id)=>{
     const b=bookings.find(x=>x.id===id);
     if(!b||!canCancel(b.date,b.slotId)){ showToast('Cannot cancel within 48 hours.','error'); return; }
-    const{error}=await sb.from('bookings').delete().eq('id',id);
+    const{error}=await sb.from('bookings').update({status:'cancelled'}).eq('id',id).eq('status','confirmed');
     if(error) showToast('Could not cancel. Please try again.','error');
     else showToast('Booking cancelled.');
   };
@@ -904,7 +904,7 @@ function App(){
         <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:600,color:'#fff',letterSpacing:'0.02em',display:'flex',alignItems:'center',gap:9}}>
           <span style={{color:'var(--gold)',fontSize:15}}>✿</span>Bloom Facial
         </div>
-        {IS_STAFF&&(
+        {session&&STAFF_EMAILS.includes(session.user.email)&&(
           <nav style={{display:'flex',gap:4}}>
             {[['customer','Booking'],['admin','Staff']].map(([id,lbl])=>(
               <button key={id} onClick={()=>setView(id)} style={{background:view===id?'rgba(196,173,128,.18)':'transparent',border:`1px solid ${view===id?'rgba(196,173,128,.4)':'transparent'}`,color:view===id?'var(--gold)':'rgba(255,255,255,.45)',borderRadius:8,padding:'6px 14px',fontSize:13,fontWeight:500,cursor:'pointer',transition:'all .2s'}}>{lbl}</button>
