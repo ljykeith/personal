@@ -111,6 +111,8 @@ const canBookDate=d  => { const t=today(),mx=new Date(t); mx.setMonth(mx.getMont
 const canCancel =(ds,sid)=>{ const h={1:10,2:14,3:17}[sid],st=parseDate(ds); st.setHours(h,0,0,0); return(st-new Date())>48*3600*1000; };
 
 const toWAPhone = p => { const d=p.replace(/\D/g,''); return d.startsWith('65')?d:'65'+d; };
+const isMobile = ()=>/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const buildWaUrl = (phone,msg)=>isMobile()?`https://wa.me/${phone}?text=${msg}`:`https://web.whatsapp.com/send?phone=${phone}&text=${msg}`;
 
 /* DB row → frontend object */
 const fromDB = b => ({ ...b, slotId: b.slot_id });
@@ -188,7 +190,7 @@ function QRCode(){
 function PaymentScreen({booking,onBack}){
   const slot=SLOTS.find(s=>s.id===booking.slotId);
   const waMsg=encodeURIComponent(`Hi! I've paid S$${PRICE} for my Bloom Facial appointment.\nBooking ref: ${booking.id}\nDate: ${prettyDate(booking.date)}\nTime: ${slot?.time}`);
-  const waUrl=`https://wa.me/${WA_NUM}?text=${waMsg}`;
+  const waUrl=buildWaUrl(WA_NUM,waMsg);
   const [copied,setCopied]=useState(false);
   const copyRef=()=>{ navigator.clipboard.writeText(booking.id); setCopied(true); setTimeout(()=>setCopied(false),2000); };
   return(
@@ -759,7 +761,7 @@ function AdminView({bookings,blockedDates,session,onAdminCancel,onAdminConfirm,o
                       :isPending
                         ?encodeURIComponent(`Hi ${b.name}, this is a reminder that your Bloom Facial booking is pending payment.\n\n📅 ${prettyDate(b.date)}\n🕐 ${slot?.time}\n\nPlease complete your PayNow transfer of S$${PRICE} and WhatsApp us your receipt to confirm your slot.\n\n— Bloom Facial`)
                         :encodeURIComponent(`Hi ${b.name}! 🌸 Your Bloom Facial appointment is confirmed.\n\n📅 ${prettyDate(b.date)}\n🕐 ${slot?.time}\n\nWe look forward to seeing you! Please arrive 5 minutes early.\n\n— Bloom Facial`);
-                    window.open(`https://wa.me/${toWAPhone(b.phone)}?text=${msg}`,'_blank');
+                    window.open(buildWaUrl(toWAPhone(b.phone),msg),'_blank');
                   }} style={{background:'none',border:'1px solid #25D366',color:'#25D366',borderRadius:8,padding:'10px 14px',fontSize:13,fontWeight:500,cursor:'pointer',minHeight:44,transition:'all .2s',display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap'}}>
                     {waIcon} Notify
                   </button>
